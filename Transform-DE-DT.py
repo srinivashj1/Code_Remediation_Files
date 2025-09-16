@@ -1,0 +1,61 @@
+import pandas as pd
+import re
+
+# Config
+MAPPING_FILE = 'Mapping-DE-DT.xlsx'
+INPUT_ABAP_FILE = 'input.abap'
+OUTPUT_ABAP_FILE = 'output_transformed.abap'
+
+# Load mapping
+df = pd.read_excel(MAPPING_FILE)
+
+def generate_declaration(row):
+    s4 = str(row.get('S4', '')).strip()
+    length = row.get('LENGTH', None)
+    decimal = row.get('DECIMAL', None)
+    parts = [s4] if s4 else []
+    if pd.notnull(length):
+        try:
+            length_int = int(float(length))
+            parts.append(f"LENGTH {length_int}")
+        except Exception:
+            pass
+    if decimal is not None and pd.notnull(decimal):
+        try:
+            decimal_int = int(float(decimal))
+            parts.append(f"DECIMALS {decimal_int}")
+        except Exception:
+            pass
+    return ' '.join(parts) if parts else ""
+
+# Build CRM to S4 type mapping
+mapping_dict = {}
+for _, row in df.iterrows():
+    crm = str(row['CRM']).strip()
+    decl = generate_declaration(row)
+    if crm and decl:
+        mapping_dict[crm] = decl
+
+# Regex to find: TYPE <CRM_TYPE>
+# Supports e.g., TYPE   CRMT_SMS_CREATED_AT, TYPE/BI0/OITCTERRDAT, etc.
+type_pattern = re.compile(r'\bTYPE\s+([A-Z0-9_\/]+)\b', flags=re.IGNORECASE)
+
+def replace_types(match):
+    crm_type = match.group(1)
+    mapped = mapping_dict.get(crm_type)
+    if mapped:
+        return f"TYPE {mapped}"
+    else:
+        # Not found: return original
+        return match.group(0)
+
+with open(INPUT_ABAP_FILE, 'r', encoding='utf-8') as f:
+    abap_code = f.read()
+
+transformed_code = type_pattern.sub(replace_types, abap_code)
+
+with open(OUTPUT_ABAP_FILE, 'w', encoding='utf-8') as f:
+    f.write(transformed_code)
+
+print(f"Transformed ABAP file written to: {OUTPUT_ABAP_FILE}")
+print(f"CRM types replaced using mapping from: {MAPPING_FILE}")
